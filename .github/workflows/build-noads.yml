@@ -1,0 +1,61 @@
+name: Build NoAds
+
+on:
+  workflow_dispatch:
+
+env:
+  THEOS: ""
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.4'
+      - name: Checkout
+        uses: actions/checkout@v4.1.1
+      - name: Dependencies
+        run: |
+          echo /usr/local/opt/make/libexec/gnubin >> $GITHUB_PATH
+          echo /opt/homebrew/opt/make/libexec/gnubin >> $GITHUB_PATH
+          brew install dpkg ldid-procursus make xcbeautify openssl@3 || true
+      - name: Checkout THEOS
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: theos/theos
+          ref: 942cd0c015f93d8c2d714ba0c69e7f420157c382
+          path: theos
+          submodules: recursive
+      - name: THEOS env
+        run: |
+          rm -rf $GITHUB_WORKSPACE/theos/sdks
+          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
+          echo "THEOS_PACKAGE_SCHEME=rootless" >> $GITHUB_ENV
+          echo "FINALPACKAGE=1" >> $GITHUB_ENV
+      - name: Checkout SDKs
+        uses: actions/checkout@v4.1.1
+        with:
+          repository: theos/sdks
+          ref: master
+          path: ${{ env.THEOS }}/sdks
+      - name: Apply NoAds patch
+        run: |
+          python3 - <<'PYEOF'
+          p='TrollFools/AppListView.swift'
+          s=open(p).read()
+          i=s.index('var shouldShowAdvertisement: Bool {')
+          j=s.index('}', s.index('isSelectorMode'))+1
+          new='var shouldShowAdvertisement: Bool {\n        false\n    }'
+          open(p,'w').write(s[:i]+new+s[j:])
+          PYEOF
+      - name: Build
+        run: |
+          make package
+          cp packages/*.tipa .
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrollFools-NoAds
+          path: '*.tipa'
